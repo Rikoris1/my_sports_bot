@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-YOUR_ID = "127801716"
+YOUR_ID = "1403811518"  # ваш правильный Telegram ID
 
 def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -16,7 +16,8 @@ def send_message(text):
         print(f"[{datetime.now()}] ❌ Ошибка: {e}")
 
 def main():
-    send_message("✅ Бот запущен!")
+    print(f"[{datetime.now()}] 🤖 Бот запущен!")
+    send_message("✅ Бот успешно запущен на сервере Bothost!")
     print("✅ Бот работает")
 
 if __name__ == "__main__":
