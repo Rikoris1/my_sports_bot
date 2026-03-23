@@ -1,108 +1,158 @@
-import requests
-import time
 import os
-import json
+import requests
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from datetime import datetime
+from dotenv import load_dotenv
 
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-DEEPSEEK_KEY = os.getenv('DEEPSEEK_KEY')
-YOUR_ID = "1403811518"
+# Загружаем переменные из файла .env
+load_dotenv()
 
-# Функция отправки сообщения
-def send_message(text, chat_id=None):
-    if chat_id is None:
-        chat_id = YOUR_ID
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+# Чтение токенов из переменных окружения
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+
+# Проверка наличия токенов
+if not TELEGRAM_TOKEN or not DEEPSEEK_API_KEY:
+    print("❌ Ошибка: не заданы переменные окружения TELEGRAM_BOT_TOKEN и DEEPSEEK_API_KEY")
+    exit(1)
+
+# ========== ТВОЙ ПОЛНЫЙ ШАБЛОН СТАВОК (ВЕРСИЯ 6.3) ==========
+SYSTEM_PROMPT = """
+# ТВОЙ ПОЛНЫЙ ШАБЛОН СТАВОК (ВЕРСИЯ 6.3)
+
+## 1. РАСПИСАНИЕ СТАВОК
+
+| Время (МСК) | Действие |
+|-------------|----------|
+| **06:00** | **СТАВКА** |
+| **09:00** | **СТАВКА** |
+| **12:00** | **СТАВКА** |
+| **15:00** | **СТАВКА** |
+| **18:00** | **СТАВКА** |
+| **21:00** | **СТАВКА** |
+
+## 2. ОСНОВНЫЕ ПРАВИЛА
+
+| Правило | Значение |
+|---------|----------|
+| **Время подачи ставок** | Автоматически по расписанию |
+| **Количество ставок** | Без ограничений |
+| **Виды спорта** | Футбол, теннис, баскетбол |
+| **Букмекер** | Только Melbet |
+| **Размер ставки** | 50 ₽ (до 2000) |
+| **Формат ответа** | Только таблица |
+| **Двойная проверка** | Обязательна |
+
+## 3. ФИЛЬТРЫ СТАВОК
+
+| Параметр | Требование |
+|----------|------------|
+| Коэффициент | 1.80 – 2.10 (оптимально) |
+| Value | > 5% (обязательно) |
+| Вероятность прохода | > 60% |
+| Даты матчей | Только текущий день |
+
+## 4. СТРУКТУРА ТАБЛИЦЫ (МОЙ ОТВЕТ)
+
+| № | Вид | Матч | Турнир | Ставка | Кэф | Вероятность | Value | Сумма |
+|---|-----|------|--------|--------|-----|-------------|-------|-------|
+
+## 5. ШАБЛОН АНАЛИЗА (ЧТО Я ПРОВЕРЯЮ ПЕРЕД ТАБЛИЦЕЙ)
+
+| № | Пункт | Что проверяю | Источники |
+|---|-------|--------------|-----------|
+| 1 | Базовая информация | Турнир, дата, время, стадион, покрытие | Flashscore, Sofascore |
+| 2 | Турнирная мотивация | Место в таблице, борьба за плей-офф/выживание | Спорт-Экспресс, Чемпионат |
+| 3 | Текущая форма | Последние 5-10 матчей, дома/в гостях | Sofascore, Flashscore, FBref |
+| 4 | Личные встречи (H2H) | Последние 5 матчей, счета, тоталы, серии | Flashscore, Sofascore |
+| 5 | Составы и травмы | Кто не играет, кто вернулся | Офиц. сайты, Twitter, ESPN |
+| 6 | Глубокая статистика | xG, удары, подача, брейки | Understat, FootyStats, Tennis Abstract |
+| 7 | Прогнозы экспертов | Минимум 3 источника | ESPN, Sky Sports, The Athletic |
+| 8 | Движение линии | Открывающий и текущий кэф | OddsPortal, OddsChecker |
+| 9 | Сравнительный анализ | Стиль, физика, форма на покрытии | Анализ вручную |
+| 10 | Моделирование | 10 000 симуляций Монте-Карло | Рассчёт вероятностей |
+| 11 | Расчёт Value | (Вероятность × Кэф) — 1 | Формула |
+| 12 | Проверка разрешённых ставок | Только разрешённые типы | Правило |
+
+## 6. ЧТО РАЗРЕШЕНО
+
+✅ **Любые ставки** на любые исходы.
+
+## 7. ЧТО ЗАПРЕЩЕНО
+
+❌ Нет запрещенных ставок.
+
+## 8. АЛГОРИТМ РАБОТЫ
+
+1. **06:00, 09:00, 12:00, 15:00, 18:00, 21:00** — автоматически:
+   - ищу матчи на текущий день в Melbet
+   - провожу анализ по 12 пунктам
+   - отвечаю только таблицей
+2. Если в определённый час нет качественных матчей — пропускаю.
+"""
+
+async def start(update: Update, context):
+    await update.message.reply_text(
+        "🤖 *Бот ставок запущен!*\n\n"
+        "📅 *Расписание:* 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 (МСК)\n"
+        "⚽ *Виды спорта:* Футбол, теннис, баскетбол\n"
+        "🎰 *Букмекер:* Melbet\n"
+        "💰 *Размер ставки:* 50 ₽\n\n"
+        "📝 *Команды:*\n"
+        "/start — запуск бота\n"
+        "📊 *Прогнозы:* просто напиши матч или 'ставки на сегодня'",
+        parse_mode="Markdown"
+    )
+
+async def handle_message(update: Update, context):
+    user_message = update.message.text
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Сейчас {datetime.now().strftime('%H:%M')} МСК. {user_message}"}
+    ]
+
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "deepseek-chat",
+        "messages": messages,
+        "temperature": 0.3
+    }
+
     try:
-        requests.post(url, data=data, timeout=10)
-        print(f"[{datetime.now()}] ✅ Отправлено")
-        return True
-    except Exception as e:
-        print(f"[{datetime.now()}] ❌ Ошибка: {e}")
-        return False
+        response = requests.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=45
+        )
 
-# Функция получения прогнозов по шаблону
-def get_predictions():
-    prompt = f"""
-    Ты профессиональный спортивный аналитик. Составь 5 прогнозов на {datetime.now().strftime('%d.%m.%Y')}.
-
-    ВАЖНО:
-    - Виды спорта: футбол, теннис, баскетбол
-    - Букмекер: Melbet
-    - Коэффициент: 1.80 – 2.10
-    - Value > 5%
-    - Вероятность прохода > 60%
-    - ЗАПРЕЩЕНО: тоталы в футболе, ИТМ 0.5, двойной шанс с value < 10%, кэф < 1.70
-    - ОЗ (обе забьют): кэф ≥ 1.6
-
-    ОТВЕТЬ ТОЛЬКО ТАБЛИЦЕЙ В ТОЧНОМ ФОРМАТЕ (без лишнего текста):
-    | № | Вид | Матч | Турнир | Ставка | Кэф | Вероятность | Value | Сумма |
-    |---|------|------|--------|--------|-----|-------------|-------|-------|
-    | 1 | ⚽ | Реал Мадрид - Барселона | Примера | Победа Реала | 1.85 | 65% | 7.5% | 50₽ |
-
-    Убедись, что все матчи реальные и играются сегодня. Проверь каждый прогноз на соответствие правилам.
-    """
-    headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
-    data = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
-    try:
-        r = requests.post("https://api.deepseek.com/v1/chat/completions", headers=headers, json=data, timeout=30)
-        if r.status_code == 200:
-            return r.json()['choices'][0]['message']['content']
+        if response.status_code == 200:
+            reply = response.json()["choices"][0]["message"]["content"]
+        elif response.status_code == 401:
+            reply = "❌ *Ошибка авторизации DeepSeek API.*\nПроверьте API ключ и пополните баланс."
+        elif response.status_code == 402:
+            reply = "❌ *Недостаточно средств на счете DeepSeek.*\nПополните баланс в консоли platform.deepseek.com"
         else:
-            return f"❌ Ошибка API: {r.status_code}"
+            reply = f"❌ *Ошибка API:* {response.status_code}\n```\n{response.text[:500]}\n```"
+
     except Exception as e:
-        return f"❌ Ошибка соединения: {e}"
+        reply = f"❌ *Ошибка:* {str(e)}"
 
-# Обработка сообщений (простая версия)
-def get_updates(offset=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    params = {"timeout": 30, "offset": offset}
-    try:
-        r = requests.get(url, params=params)
-        return r.json()
-    except:
-        return {"result": []}
+    await update.message.reply_text(reply, parse_mode="Markdown")
 
-# Основной цикл
 def main():
-    print(f"[{datetime.now()}] 🤖 Бот запущен (шаблон V5.0)")
-    send_message("✅ Бот запущен! Отправь /stavka для прогнозов или жди расписания (9, 15, 20 ч).")
-
-    last_update_id = 0
-    last_sent_time = {"09:00": False, "15:00": False, "20:00": False}
-
-    while True:
-        # Обработка команд
-        updates = get_updates(last_update_id + 1)
-        for update in updates.get("result", []):
-            last_update_id = update["update_id"]
-            if "message" in update and "text" in update["message"]:
-                text = update["message"]["text"]
-                chat_id = update["message"]["chat"]["id"]
-                if text == "/start":
-                    send_message("Привет! Я бот с прогнозами. Отправь /stavka", chat_id)
-                elif text == "/stavka" or "ставка" in text.lower():
-                    send_message("📊 Генерирую прогнозы...", chat_id)
-                    table = get_predictions()
-                    msg = f"📊 *СТАВКИ НА {datetime.now().strftime('%d.%m.%Y')}* 📊\n\n{table}"
-                    send_message(msg, chat_id)
-
-        # Расписание
-        now = datetime.now()
-        current = now.strftime("%H:%M")
-        if current in ["09:00", "15:00", "20:00"]:
-            if not last_sent_time.get(current, False):
-                print(f"[{datetime.now()}] ⏰ Расписание: {current}")
-                table = get_predictions()
-                msg = f"📊 *СТАВКИ НА {now.strftime('%d.%m.%Y')}* 📊\n\n{table}"
-                send_message(msg)
-                last_sent_time[current] = True
-        else:
-            for k in last_sent_time:
-                last_sent_time[k] = False
-
-        time.sleep(2)
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("🤖 Бот запущен и готов к работе...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
